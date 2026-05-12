@@ -8,91 +8,135 @@ function LogUploader({ onUpload }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [dragging, setDragging] = useState(false);
   const fileInput = useRef(null);
 
-  const handleFileDrop = (e) => {
+  const handleDrop = (e) => {
     e.preventDefault();
-    e.stopPropagation();
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      setFile(files[0]);
-      setError('');
-    }
+    setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) { setFile(f); setError(''); }
   };
 
-  const handleFileSelect = (e) => {
+  const handleSelect = (e) => {
     setFile(e.target.files[0]);
     setError('');
   };
 
   const uploadLogs = async () => {
-    if (!file) {
-      setError('Please select a file');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
+    if (!file) { setError('No file selected'); return; }
+    setLoading(true); setError(''); setSuccess('');
     try {
       const content = await file.text();
-      const response = await axios.post(`${API_URL}/logs/upload`, {
-        content,
-        filename: file.name
-      });
-
-      setSuccess(`✓ Uploaded ${response.data.parsed_count} log entries`);
+      const resp = await axios.post(`${API_URL}/logs/upload`, { content, filename: file.name });
+      setSuccess(`Parsed ${resp.data.parsed_count} log entries`);
       setFile(null);
-      onUpload(response.data);
+      onUpload(resp.data);
     } catch (err) {
-      setError('Upload failed: ' + (err.response?.data?.error || err.message));
+      setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const formats = ['JSON', 'CSV', 'SYSLOG'];
+
   return (
-    <div className="uploader-container">
-      <div className="uploader-box">
-        <h2>📤 Upload Security Logs</h2>
-        
-        <div
-          className="drop-zone"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleFileDrop}
-          onClick={() => fileInput.current?.click()}
-        >
-          <div className="drop-icon">📁</div>
-          <p>Drag logs here or click to upload</p>
-          <p className="drop-hint">Supports JSON, CSV, SYSLOG formats</p>
-          <input
-            ref={fileInput}
-            type="file"
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-            accept=".json,.csv,.log,.txt"
-          />
+    <div className="panel fade-in" style={{ padding: '32px' }}>
+      <div style={{ marginBottom: 24 }}>
+        <div className="section-tag" style={{ marginBottom: 8 }}>Ingest</div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>Upload Security Logs</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+          Drop your log files for automated threat correlation and AI-powered analysis
+        </p>
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onClick={() => fileInput.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        style={{
+          border: `1px dashed ${dragging ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+          borderRadius: 'var(--radius-lg)',
+          padding: '48px 32px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          transition: 'all var(--transition)',
+          background: dragging ? 'var(--accent-cyan-dim)' : 'rgba(0,0,0,0.2)',
+          position: 'relative',
+          overflow: 'hidden',
+          marginBottom: 16,
+        }}
+      >
+        {dragging && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(135deg, var(--accent-cyan-dim), transparent)',
+            pointerEvents: 'none',
+          }} />
+        )}
+        <div style={{ fontSize: 40, marginBottom: 12, lineHeight: 1 }}>⬆</div>
+        <p style={{ color: 'var(--text-primary)', fontSize: 15, fontWeight: 500, marginBottom: 6 }}>
+          {dragging ? 'Release to upload' : 'Drop log file here'}
+        </p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+          or click to browse
+        </p>
+
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 20 }}>
+          {formats.map(f => (
+            <span key={f} style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em',
+              padding: '3px 8px', borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)', color: 'var(--text-muted)',
+            }}>{f}</span>
+          ))}
         </div>
 
-        {file && (
-          <div className="file-info">
-            <p>Selected: <strong>{file.name}</strong></p>
-            <p>Size: {(file.size / 1024).toFixed(2)} KB</p>
-          </div>
-        )}
-
-        <button
-          className="btn btn-primary"
-          onClick={uploadLogs}
-          disabled={!file || loading}
-        >
-          {loading ? 'Processing...' : 'Analyze Logs'}
-        </button>
-
-        {error && <div className="alert alert-error">{error}</div>}
-        {success && <div className="alert alert-success">{success}</div>}
+        <input ref={fileInput} type="file" onChange={handleSelect}
+          style={{ display: 'none' }} accept=".json,.csv,.log,.txt" />
       </div>
+
+      {/* File info */}
+      {file && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', background: 'var(--accent-cyan-dim)',
+          borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)',
+          marginBottom: 16,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>📄</span>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent-cyan)' }}>
+                {file.name}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                {(file.size / 1024).toFixed(2)} KB
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setFile(null)} className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={uploadLogs} disabled={!file || loading}>
+          {loading ? '⟳ Processing...' : '▶ Analyze Logs'}
+        </button>
+        {file && (
+          <button className="btn btn-ghost" onClick={() => setFile(null)}>Clear</button>
+        )}
+      </div>
+
+      {loading && <div className="loading-bar" style={{ marginTop: 16 }} />}
+
+      {error   && <div className="alert alert-error"   style={{ marginTop: 14 }}>⚠ {error}</div>}
+      {success && <div className="alert alert-success" style={{ marginTop: 14 }}>✓ {success}</div>}
     </div>
   );
 }

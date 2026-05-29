@@ -30,8 +30,9 @@ function LogUploader({ onUpload }) {
       const content = await file.text();
       const resp = await axios.post(`${API_URL}/logs/upload`, { content, filename: file.name });
       setSuccess(`Parsed ${resp.data.parsed_count} log entries`);
+      // attach filename to response data before passing up
+      onUpload({ ...resp.data, filename: file.name });
       setFile(null);
-      onUpload(resp.data);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -47,7 +48,6 @@ function LogUploader({ onUpload }) {
         <div className="section-tag" style={{ marginBottom: 8 }}>Ingest</div>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>Upload Security Logs</h2>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-          Drop your log files for automated threat correlation and AI-powered analysis
         </p>
       </div>
 

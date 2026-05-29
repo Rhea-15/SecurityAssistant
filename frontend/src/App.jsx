@@ -8,6 +8,8 @@ import CorrelationView from './components/CorrelationView';
 import AnalysisResults from './components/AnalysisResults';
 import PatternClusters from './components/PatternVisualization';
 import IncidentReport from './components/IncidentReport';
+import HistoryPanel, { saveToHistory } from './components/HistoryPanel';
+import HistoryDetail from './components/HistoryDetail';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -29,77 +31,99 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentStep, setCurrentStep] = useState('upload');
+  const [historyEntry, setHistoryEntry] = useState(null);
 
+  const resetAll = () => {
+    setSessionId(null);
+    setLogs([]);
+    setCorrelation(null);
+    setAnalysis(null);
+    setClusters(null);
+    setReport(null);
+    setError('');
+    setCurrentStep('upload');
+  };
+
+  // filename and parsedCount flow as arguments, never read from state
   const handleUpload = (data) => {
+    const filename = data.filename;
+    const parsedCount = data.parsed_count;
+
     setSessionId(data.sessionId);
     setLogs(data.sample);
     setError('');
     setCurrentStep('correlating');
-    setTimeout(() => runCorrelation(data.sessionId), 400);
+    setTimeout(() => runCorrelation(data.sessionId, filename, parsedCount), 400);
   };
 
-  const runCorrelation = async (id) => {
+  const runCorrelation = async (id, filename, parsedCount) => {
     setLoading(true);
     try {
       const r = await axios.post(`${API_URL}/analysis/correlate`, { sessionId: id });
       setCorrelation(r.data);
       setCurrentStep('analyzing');
-      setTimeout(() => runAnalysis(id), 400);
+      setTimeout(() => runAnalysis(id, filename, parsedCount, r.data), 400);
     } catch (e) {
       setError('Correlation failed: ' + e.message);
     } finally { setLoading(false); }
   };
 
-  const runAnalysis = async (id) => {
+  const runAnalysis = async (id, filename, parsedCount, correlationData) => {
     setLoading(true);
     try {
       const r = await axios.post(`${API_URL}/analysis/claude`, { sessionId: id });
       setAnalysis(r.data.analysis);
       setCurrentStep('clustering');
-      setTimeout(() => runClustering(id), 400);
+      setTimeout(() => runClustering(id, filename, parsedCount, correlationData, r.data.analysis), 400);
     } catch (e) {
       setError('Analysis failed: ' + (e.response?.data?.error || e.message));
-      setTimeout(() => runClustering(id), 800);
+      setTimeout(() => runClustering(id, filename, parsedCount, correlationData, null), 800);
     } finally { setLoading(false); }
   };
 
-  const runClustering = async (id) => {
+  const runClustering = async (id, filename, parsedCount, correlationData, analysisData) => {
     setLoading(true);
     try {
       const r = await axios.post(`${API_URL}/patterns/cluster`, { sessionId: id });
       setClusters(r.data.clusters);
       setCurrentStep('reporting');
-      setTimeout(() => generateReport(id), 400);
+      setTimeout(() => generateReport(id, filename, parsedCount, correlationData, analysisData), 400);
     } catch (e) {
       setError('Clustering failed: ' + e.message);
-      setTimeout(() => generateReport(id), 800);
+      setTimeout(() => generateReport(id, filename, parsedCount, correlationData, analysisData), 800);
     } finally { setLoading(false); }
   };
 
-  const generateReport = async (id) => {
+  const generateReport = async (id, filename, parsedCount, correlationData, analysisData) => {
     setLoading(true);
     try {
       const r = await axios.post(`${API_URL}/reports/generate`, { sessionId: id });
       setReport(r.data);
       setCurrentStep('complete');
+      // filename is the actual string here, not stale state
+      saveToHistory(id, filename, parsedCount, analysisData, correlationData, r.data);
     } catch (e) {
       setError('Report failed: ' + e.message);
     } finally { setLoading(false); }
   };
 
+  if (historyEntry) {
+    return (
+      <div className="app">
+        <HistoryDetail entry={historyEntry} onBack={() => setHistoryEntry(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <Dashboard stats={{
-        incidents: correlation ? correlation.patterns.length : 0,
-        threats:   clusters ? clusters.length : 0,
+        incidents:     correlation ? correlation.patterns.length : 0,
+        threats:       clusters ? clusters.length : 0,
         high_severity: clusters ? clusters.filter(c => c.severity === 'CRITICAL').length : 0,
       }} />
 
-      {error && (
-        <div className="alert alert-error">
-          ⚠ {error}
-        </div>
-      )}
+      {error && <div className="alert alert-error">⚠ {error}</div>}
 
       {currentStep === 'upload' && <LogUploader onUpload={handleUpload} />}
 
@@ -117,8 +141,18 @@ function App() {
           {analysis   && !loading && <AnalysisResults analysis={analysis} />}
           {clusters   && !loading && <PatternClusters clusters={clusters} />}
           {report     && !loading && <IncidentReport report={report} analysis={analysis} />}
+
+          {currentStep === 'complete' && !loading && (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 16 }}>
+              <button className="btn btn-ghost" onClick={resetAll} style={{ gap: 8, fontSize: 13 }}>
+                ＋ Analyze Another Log
+              </button>
+            </div>
+          )}
         </>
       )}
+
+      <HistoryPanel onViewDetail={(entry) => setHistoryEntry(entry)} />
     </div>
   );
 }
